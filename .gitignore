@@ -12,8 +12,4 @@ run-tests.php
 *cache*
 Makefile*
 *.m4
-config*
--config.m4
-smthrift*
--smthrift.c
 modules
