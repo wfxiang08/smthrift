@@ -6,14 +6,13 @@ extern "C" {
 #include "php_smthrift.h"
 }
 
-
 #include <cstdint>
 #include <stdexcept>
 #include <algorithm>
 #include <vector>
 
 #ifndef bswap_64
-#define    bswap_64(x)  (((uint64_t)(x) << 56) | \
+#define	bswap_64(x)     (((uint64_t)(x) << 56) | \
                         (((uint64_t)(x) << 40) & 0xff000000000000ULL) | \
                         (((uint64_t)(x) << 24) & 0xff0000000000ULL) | \
                         (((uint64_t)(x) << 8)  & 0xff00000000ULL) | \
@@ -36,24 +35,24 @@ extern "C" {
 #endif
 
 enum TType {
-    T_STOP = 0,
-    T_VOID = 1,
-    T_BOOL = 2,
-    T_BYTE = 3,
-    T_I08 = 3,
-    T_I16 = 6,
-    T_I32 = 8,
-    T_U64 = 9,
-    T_I64 = 10,
-    T_DOUBLE = 4,
-    T_STRING = 11,
-    T_UTF7 = 11,
-    T_STRUCT = 12,
-    T_MAP = 13,
-    T_SET = 14,
-    T_LIST = 15,
-    T_UTF8 = 16,
-    T_UTF16 = 17
+  T_STOP       = 0,
+  T_VOID       = 1,
+  T_BOOL       = 2,
+  T_BYTE       = 3,
+  T_I08        = 3,
+  T_I16        = 6,
+  T_I32        = 8,
+  T_U64        = 9,
+  T_I64        = 10,
+  T_DOUBLE     = 4,
+  T_STRING     = 11,
+  T_UTF7       = 11,
+  T_STRUCT     = 12,
+  T_MAP        = 13,
+  T_SET        = 14,
+  T_LIST       = 15,
+  T_UTF8       = 16,
+  T_UTF16      = 17
 };
 
 const int32_t VERSION_MASK = 0xffff0000;
@@ -129,7 +128,9 @@ public:
 
     // 底层io
     void write(const char *data, size_t len) {
-        // php_printf("PHPOutputTransport write data: %d to buffer\n", len);
+#ifdef DEBUG_LOG
+        php_printf("PHPOutputTransport write data: %d to buffer\n", len);
+#endif
         buffer.insert(std::end(buffer), data, data + len);
     }
 
@@ -167,6 +168,10 @@ public:
         int64_t i = buffer.size() - 4;
         i = htonl(i);
         memcpy(buffer.data(), (const char *) &i, 4);
+
+#ifdef DEBUG_LOG
+        php_printf("flush data len: %d to socket: %p\n", buffer.size(), socket->stream);
+#endif
         socket_write(socket, buffer.data(), buffer.size());
     }
 };
@@ -485,11 +490,8 @@ static void binary_deserialize(int8_t thrift_typeID, PHPInputTransport &transpor
                     zend_hash_index_update(Z_ARR_P(return_value), Z_LVAL(key), &value);
                 } else {
                     if (Z_TYPE(key) != IS_STRING) convert_to_string(&key);
-
-                    // 将key, value保存到return_value中
-                    zend_symtable_update(Z_ARR_P(return_value), Z_STR(key), &value);
+                    zend_hash_update(Z_ARR_P(return_value), Z_STR(key), &value);
                 }
-                zval_dtor(&key);
             }
             return; // return_value already populated
         }
@@ -529,9 +531,8 @@ static void binary_deserialize(int8_t thrift_typeID, PHPInputTransport &transpor
                     zend_hash_index_update(Z_ARR_P(return_value), Z_LVAL(key), &value);
                 } else {
                     if (Z_TYPE(key) != IS_STRING) convert_to_string(&key);
-                    zend_symtable_update(Z_ARR_P(return_value), Z_STR(key), &value);
+                    zend_hash_update(Z_ARR_P(return_value), Z_STR(key), &value);
                 }
-                zval_dtor(&key);
             }
             return;
         }
@@ -561,7 +562,7 @@ static void binary_serialize_hashtable_key(int8_t keytype, PHPOutputTransport &t
     } else {
         char buf[64];
         if (res == HASH_KEY_IS_STRING) {
-            ZVAL_STR_COPY(&z, key);
+            ZVAL_STR(&z, key);
         } else {
             snprintf(buf, 64, "%ld", index);
             ZVAL_STRING(&z, buf);
@@ -766,48 +767,6 @@ static inline bool ttypes_are_compatible(int8_t t1, int8_t t2) {
     return ((t1 == t2) || (ttype_is_int(t1) && ttype_is_int(t2)));
 }
 
-//is used to validate objects before serialization and after deserialization. For now, only required fields are validated.
-static void validate_thrift_object(zval *object) {
-    zend_class_entry *object_class_entry = Z_OBJCE_P(object);
-    zval *is_validate = zend_read_static_property(object_class_entry, "isValidate", sizeof("isValidate") - 1, false);
-    zval *spec = zend_read_static_property(object_class_entry, "_TSPEC", sizeof("_TSPEC") - 1, false);
-    HashPosition key_ptr;
-    zval *val_ptr;
-
-    if (Z_TYPE_INFO_P(is_validate) == IS_TRUE) {
-        for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(spec), &key_ptr);
-             (val_ptr = zend_hash_get_current_data_ex(Z_ARRVAL_P(spec), &key_ptr)) != nullptr;
-             zend_hash_move_forward_ex(Z_ARRVAL_P(spec), &key_ptr)) {
-
-            zend_ulong fieldno;
-            if (zend_hash_get_current_key_ex(Z_ARRVAL_P(spec), nullptr, &fieldno, &key_ptr) != HASH_KEY_IS_LONG) {
-                throw_tprotocolexception("Bad keytype in TSPEC (expected 'long')", INVALID_DATA);
-                return;
-            }
-            HashTable *fieldspec = Z_ARRVAL_P(val_ptr);
-
-            // field name
-            zval *zvarname = zend_hash_str_find(fieldspec, "var", sizeof("var") - 1);
-            // zval --> char*
-            char *varname = Z_STRVAL_P(zvarname);
-
-            // 如何读取hashmap
-            zval *is_required = zend_hash_str_find(fieldspec, "isRequired", sizeof("isRequired") - 1);
-            // zval如何使用呢?
-
-            zval rv;
-            // 检查object对应的字段
-            zval *prop = zend_read_property(object_class_entry, object, varname, strlen(varname), false, &rv);
-
-            if (Z_TYPE_INFO_P(is_required) == IS_TRUE && Z_TYPE_P(prop) == IS_NULL) {
-                char errbuf[128];
-                snprintf(errbuf, 128, "Required field %s.%s is unset!", ZSTR_VAL(object_class_entry->name), varname);
-                throw_tprotocolexception(errbuf, INVALID_DATA);
-            }
-        }
-    }
-}
-
 static void binary_deserialize_spec(zval *zthis, PHPInputTransport &transport, HashTable *spec) {
     // SET and LIST have 'elem' => array('type', [optional] 'class')
     // MAP has 'val' => array('type', [optiona] 'class')
@@ -816,7 +775,6 @@ static void binary_deserialize_spec(zval *zthis, PHPInputTransport &transport, H
     while (true) {
         int8_t ttype = transport.readI8();
         if (ttype == T_STOP) {
-            validate_thrift_object(zthis);
             return;
         }
 
@@ -861,8 +819,6 @@ static void binary_deserialize_spec(zval *zthis, PHPInputTransport &transport, H
 }
 
 static void binary_serialize_spec(zval *zthis, PHPOutputTransport &transport, HashTable *spec) {
-
-    validate_thrift_object(zthis);
 
     HashPosition key_ptr;
     zval *val_ptr;
@@ -924,8 +880,9 @@ PHP_FUNCTION (sm_thrift_protocol_write_binary) {
                                  &request_struct, &seqID, &strict_write) == FAILURE) {
         return;
     }
-
-    // php_printf("thrift_protocol_write_binary in cpp\n");
+#ifdef DEBUG_LOG
+    php_printf("thrift_protocol_write_binary in cpp\n");
+#endif
     try {
         // 如何读取object的类(Class Entry)
         // zval --> value --> obj --> ce
@@ -938,14 +895,17 @@ PHP_FUNCTION (sm_thrift_protocol_write_binary) {
 
         PHPOutputTransport transport(protocol);
         protocol_writeMessageBegin(&transport, method_name, (int32_t) msgtype, (int32_t) seqID);
+#ifdef DEBUG_LOG
+        php_printf("begin binary_serialize_spec: %p\n", spec);
+#endif
         binary_serialize_spec(request_struct, transport, Z_ARRVAL_P(spec));
+#ifdef DEBUG_LOG
+        php_printf("begin transport.flush\n");
+#endif
         transport.flush();
 
     } catch (const PHPExceptionWrapper &ex) {
-        // ex will be destructed, so copy to a zval that zend_throw_exception_object can take ownership of
-        zval myex;
-        ZVAL_COPY(&myex, ex);
-        zend_throw_exception_object(&myex);
+        zend_throw_exception_object(ex);
         RETURN_NULL();
     } catch (const std::exception &ex) {
         throw_zend_exception_from_std_exception(ex);
@@ -1009,11 +969,7 @@ PHP_FUNCTION (sm_thrift_protocol_read_binary) {
         zval *spec = zend_read_static_property(Z_OBJCE_P(return_value), "_TSPEC", sizeof("_TSPEC") - 1, false);
         binary_deserialize_spec(return_value, transport, Z_ARRVAL_P(spec));
     } catch (const PHPExceptionWrapper &ex) {
-        // ex will be destructed, so copy to a zval that zend_throw_exception_object can ownership of
-        zval myex;
-        ZVAL_COPY(&myex, ex);
-        zval_dtor(return_value);
-        zend_throw_exception_object(&myex);
+        zend_throw_exception_object(ex);
         RETURN_NULL();
     } catch (const std::exception &ex) {
         throw_zend_exception_from_std_exception(ex);

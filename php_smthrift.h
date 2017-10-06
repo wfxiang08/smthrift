@@ -13,6 +13,7 @@ PHP_FUNCTION(sm_thrift_protocol_read_binary);
 extern zend_module_entry smthrift_module_entry;
 #define phpext_smthrift_ptr &smthrift_module_entry
 
+//#define DEBUG_LOG
 #define PHP_SMTHRIFT_VERSION "0.1.0"
 
 #ifdef PHP_WIN32
