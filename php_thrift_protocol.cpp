@@ -22,7 +22,6 @@ extern "C" {
                         ((uint64_t)(x)  >> 56))
 #endif
 
-#ifndef htonll
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define htonll(x) bswap_64(x)
 #define ntohll(x) bswap_64(x)
@@ -31,7 +30,6 @@ extern "C" {
 #define ntohll(x) x
 #else
 #error Unknown __BYTE_ORDER
-#endif
 #endif
 
 enum TType {
