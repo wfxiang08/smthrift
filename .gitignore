@@ -11,5 +11,4 @@ run-tests.php
 *.lo
 *cache*
 Makefile*
-*.m4
 modules
