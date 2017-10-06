@@ -6,6 +6,7 @@ extern "C" {
 #include "php_smthrift.h"
 }
 
+#include <arpa/inet.h>
 #include <cstdint>
 #include <stdexcept>
 #include <algorithm>
