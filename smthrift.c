@@ -15,9 +15,18 @@
 static zend_class_entry *smthrift_ce;
 static zend_object_handlers smthrift_object_handlers;
 
+// string $host, int $port, bool $strict_write = true, bool $strict_read=true, int $persitent_key=0
+ZEND_BEGIN_ARG_INFO_EX(arginfo___construct, 0, 0, 2)
+        ZEND_ARG_INFO(0, host)
+        ZEND_ARG_INFO(0, port)
+        ZEND_ARG_INFO(0, strict_write)
+        ZEND_ARG_INFO(0, strict_read)
+        ZEND_ARG_INFO(0, persitent_key)
+ZEND_END_ARG_INFO()
+
 // 导出foolsock的方法
 const zend_function_entry sm_socket_methods[] = {
-    ZEND_ME(smsocket, __construct, NULL, ZEND_ACC_PUBLIC)
+    ZEND_ME(smsocket, __construct, arginfo___construct, ZEND_ACC_PUBLIC)
     ZEND_ME(smsocket, pconnect, NULL, ZEND_ACC_PUBLIC)
     ZEND_ME(smsocket, read, NULL, ZEND_ACC_PUBLIC)
     ZEND_ME(smsocket, write, NULL, ZEND_ACC_PUBLIC)
