@@ -95,7 +95,7 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
     // 如何实现持久操作?
     // Key的定义
     char *hash_key;
-    spprintf(&hash_key, 0, "smthrift:%s:%d", f_obj->host, f_obj->port);
+    spprintf(&hash_key, 0, "smthrift:%s:%d:%d", f_obj->host, f_obj->port, f_obj->persitent_key);
 
     // 根据hash_key获取持久化的连接
     switch (php_stream_from_persistent_id(hash_key, &(f_obj->stream) TSRMLS_CC)) {
@@ -122,46 +122,67 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
         // php_printf("Open new stream\n");
 
         // php_stream_sock_open_from_socket
-//        if(f_obj->host[0] == '/') {
-//            f_obj->stream = php_stream_sock_open_unix_rel(f_obj->host, strlen(f_obj->host), 0, 0);
-//        }  else {
+        if (f_obj->host[0] == '/') {
+            char *res;
+            zend_long reslen;
+            php_stream *stream;
 
-        int socktype = SOCK_STREAM;
-        f_obj->stream = php_stream_sock_open_host(f_obj->host, f_obj->port, socktype, &tv, hash_key);
-//        }
+            reslen = spprintf(&res, 0, "unix://%s", f_obj->host);
+
+            stream = php_stream_xport_create(res, reslen, REPORT_ERRORS,
+                                             STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, hash_key, &tv, NULL,
+                                             NULL, NULL);
+
+#ifdef DEBUG_LOG
+            php_printf("Open new stream for: %s --> %p\n", res, stream);
+#endif
+
+            efree(res);
+            f_obj->stream = stream;
+        } else {
+
+            int socktype = SOCK_STREAM;
+            f_obj->stream = php_stream_sock_open_host(f_obj->host, f_obj->port, socktype, &tv, hash_key);
+        }
+
+        php_stream_auto_cleanup(f_obj->stream);
+        php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_READ_TIMEOUT, 0, &tv);
+        php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
+        php_stream_set_chunk_size(f_obj->stream, 8192);
+
     }
     efree(hash_key);
 
     if (!f_obj->stream) {
         // 报告失败
+#ifdef DEBUG_LOG
         php_printf("Open new stream failed\n");
+#endif
         return 0;
+    } else {
+        // php_printf("Open new stream succeed, stream: %p\n", f_obj->stream);
+        return 1;
     }
-
-    php_stream_auto_cleanup(f_obj->stream);
-    php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_READ_TIMEOUT, 0, &tv);
-    php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
-    php_stream_set_chunk_size(f_obj->stream, 8192);
-
-    // php_printf("Open new stream succeed, stream: %p\n", f_obj->stream);
-    return 1;
 }
 /*}}}*/
 
 
-/*{{{ public function SmSocket::__construct(string $host, string $port, bool $strict_write, bool $strict_read)
+/*{{{ public function SmSocket::__construct(string $host, int $port, bool $strict_write = true, bool $strict_read=true, int $persitent_key=0)
  */
 PHP_METHOD (smsocket, __construct) {
     smthrift_t *intern;
     long port;
+    long persitent_key = 0;
     char *host;
     int host_len;
+
+    // "sl|bb" 如果没有指定参数$strict_write, $strict_read 则对应的参数不会被设置
     zend_bool strict_write = 1;
     zend_bool strict_read = 1;
 
     // 读取 port, host参数
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "slbb", &host, &host_len, &port, &strict_write,
-                              &strict_read) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl|bbl", &host, &host_len, &port, &strict_write,
+                              &strict_read, &persitent_key) == FAILURE) {
         RETURN_FALSE;
     }
     intern = Z_SMTHRIFT_OBJ_P(getThis());
@@ -174,6 +195,8 @@ PHP_METHOD (smsocket, __construct) {
     memcpy(intern->host, host, host_len);
     intern->host[host_len] = '\0';
     intern->port = (unsigned short) (port);
+    intern->persitent_key = persitent_key; // 如果host/port相同，可以通过不同的persitent_key来区分
+
     intern->strict_read = strict_read;
     intern->strict_write = strict_write;
 
@@ -296,6 +319,7 @@ PHP_METHOD (smsocket, read) {
 
     // php_printf("c read: stream: %p, length: %d --> %d\n", intern->stream, size, r);
     if (r <= 0) {
+        // 如果是Blocking IO, 应该不用考虑这种情况
         if (errno == EAGAIN || errno == EINPROGRESS) {
             RETURN_TRUE;
         } else {
@@ -355,22 +379,4 @@ PHP_MINFO_FUNCTION (smthrift) {
     php_info_print_table_start();
     php_info_print_table_header(2, "smthrift support", "enabled");
     php_info_print_table_end();
-}
-
-void socket_flush(smthrift_t *s) {
-    php_stream_flush(s->stream);
-}
-
-size_t socket_write(smthrift_t *s, const char *data, size_t len) {
-    // php_printf("socket_write, len: %d, stream: %p\n", len, s->stream);
-    return php_stream_write(s->stream, data, len);
-}
-
-void socket_put_back(smthrift_t *s, const char *data, size_t len) {
-    php_printf("socket_put_back with len: %d\n", len);
-}
-
-size_t socket_read(smthrift_t *s, char *data, size_t len) {
-    // php_printf("socket_read, len: %d, stream: %p\n", len, s->stream);
-    return php_stream_read(s->stream, data, len);
 }

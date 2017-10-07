@@ -13,7 +13,7 @@ extern "C" {
 #include <vector>
 
 #ifndef bswap_64
-#define	bswap_64(x)     (((uint64_t)(x) << 56) | \
+#define    bswap_64(x)     (((uint64_t)(x) << 56) | \
                         (((uint64_t)(x) << 40) & 0xff000000000000ULL) | \
                         (((uint64_t)(x) << 24) & 0xff0000000000ULL) | \
                         (((uint64_t)(x) << 8)  & 0xff00000000ULL) | \
@@ -34,24 +34,24 @@ extern "C" {
 #endif
 
 enum TType {
-  T_STOP       = 0,
-  T_VOID       = 1,
-  T_BOOL       = 2,
-  T_BYTE       = 3,
-  T_I08        = 3,
-  T_I16        = 6,
-  T_I32        = 8,
-  T_U64        = 9,
-  T_I64        = 10,
-  T_DOUBLE     = 4,
-  T_STRING     = 11,
-  T_UTF7       = 11,
-  T_STRUCT     = 12,
-  T_MAP        = 13,
-  T_SET        = 14,
-  T_LIST       = 15,
-  T_UTF8       = 16,
-  T_UTF16      = 17
+    T_STOP = 0,
+    T_VOID = 1,
+    T_BOOL = 2,
+    T_BYTE = 3,
+    T_I08 = 3,
+    T_I16 = 6,
+    T_I32 = 8,
+    T_U64 = 9,
+    T_I64 = 10,
+    T_DOUBLE = 4,
+    T_STRING = 11,
+    T_UTF7 = 11,
+    T_STRUCT = 12,
+    T_MAP = 13,
+    T_SET = 14,
+    T_LIST = 15,
+    T_UTF8 = 16,
+    T_UTF16 = 17
 };
 
 const int32_t VERSION_MASK = 0xffff0000;
@@ -62,6 +62,8 @@ const int8_t T_EXCEPTION = 3;
 
 // tprotocolexception
 const int INVALID_DATA = 1;
+const int IO_WRITE_FAILED = 2;
+const int IO_READ_FAILED = 3;
 const int BAD_VERSION = 4;
 
 static void throw_tprotocolexception(const char *what, long errorcode);
@@ -171,7 +173,10 @@ public:
 #ifdef DEBUG_LOG
         php_printf("flush data len: %d to socket: %p\n", buffer.size(), socket->stream);
 #endif
-        socket_write(socket, buffer.data(), buffer.size());
+        size_t len = php_stream_write(socket->stream, buffer.data(), buffer.size());
+        if (len != buffer.size()) {
+            throw_tprotocolexception("php_stream_write to flush data failed", IO_WRITE_FAILED);
+        }
     }
 };
 
@@ -207,19 +212,29 @@ public:
         if (buffer.size() <= 4) {
             // 读取一帧数据
             uint32_t c;
-            buffer_used = socket_read(socket, (char *) &c, 4);
+            //
+            // EAGAIN
+            // EINPROGRESS 不用考虑, 这里使用blocking io
+            //
+            buffer_used = php_stream_read(socket->stream, (char *) &c, 4);
+            if (buffer_used != 4) {
+                throw_tprotocolexception("php_stream_read of frame size failed", IO_READ_FAILED);
+            }
+
             c = (uint32_t) ntohl(c);
             buffer.resize(4 + c);
-            socket_read(socket, buffer.data() + 4, c);
 
             buffer_ptr = buffer.data() + 4;
-            buffer_used = c;
+            buffer_used = php_stream_read(socket->stream, buffer_ptr, c);
+            if (buffer_used != c) {
+                throw_tprotocolexception("php_stream_read of frame body failed", IO_READ_FAILED);
+            }
         }
 
         if (len > buffer_used) {
-            // 跑出异常
+            // 抛出异常
             char errbuf[128];
-            sprintf(errbuf, "socket data length invalid");
+            sprintf(errbuf, "socket data length invalid, buffer_used: %d < len: %d", buffer_used, len);
             throw_tprotocolexception(errbuf, INVALID_DATA);
         }
 

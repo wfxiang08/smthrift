@@ -66,6 +66,7 @@ PHP_METHOD (smsocket, isStrictRead);
 typedef struct _smthrift_s {
     char *host;
     unsigned short port;
+    long persitent_key;
     zend_bool strict_write;
     zend_bool strict_read;
 
@@ -77,11 +78,6 @@ typedef struct _smthrift_s {
 static inline smthrift_t *smthrift_fetch_object(zend_object *obj) {
     return (smthrift_t *) ((char *) obj - XtOffsetOf(smthrift_t, zo));
 }
-
-void socket_flush(smthrift_t*s);
-size_t socket_write(smthrift_t*s, const char *data, size_t len);
-void socket_put_back(smthrift_t*s, const char *data, size_t len);
-size_t socket_read(smthrift_t*s, char *data, size_t len);
 
 #define Z_SMTHRIFT_OBJ_P(zv) smthrift_fetch_object(Z_OBJ_P(zv));
 #endif	/* PHP_SMTHRIFT_H */
