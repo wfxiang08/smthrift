@@ -166,7 +166,7 @@ public:
 
     void flush() {
         // Flush一个Frame的数据
-        int64_t i = buffer.size() - 4;
+        uint32_t i = buffer.size() - 4;
         i = htonl(i);
         memcpy(buffer.data(), (const char *) &i, 4);
 
@@ -703,6 +703,7 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                 binary_serialize_hashtable_key(keytype, transport, ht, key_ptr);
                 binary_serialize(valtype, transport, val_ptr, valspec);
             }
+            //zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
         case T_LIST: {
@@ -732,6 +733,7 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                  zend_hash_move_forward_ex(ht, &key_ptr)) {
                 binary_serialize(valtype, transport, val_ptr, valspec);
             }
+            // zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
         case T_SET: {
@@ -754,6 +756,7 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                  zend_hash_move_forward_ex(ht, &key_ptr)) {
                 binary_serialize_hashtable_key(keytype, transport, ht, key_ptr);
             }
+            // zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
     };
