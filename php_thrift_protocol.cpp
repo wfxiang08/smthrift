@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -504,8 +522,9 @@ static void binary_deserialize(int8_t thrift_typeID, PHPInputTransport &transpor
                     zend_hash_index_update(Z_ARR_P(return_value), Z_LVAL(key), &value);
                 } else {
                     if (Z_TYPE(key) != IS_STRING) convert_to_string(&key);
-                    zend_hash_update(Z_ARR_P(return_value), Z_STR(key), &value);
+                    zend_symtable_update(Z_ARR_P(return_value), Z_STR(key), &value);
                 }
+                zval_dtor(&key);
             }
             return; // return_value already populated
         }
@@ -545,8 +564,9 @@ static void binary_deserialize(int8_t thrift_typeID, PHPInputTransport &transpor
                     zend_hash_index_update(Z_ARR_P(return_value), Z_LVAL(key), &value);
                 } else {
                     if (Z_TYPE(key) != IS_STRING) convert_to_string(&key);
-                    zend_hash_update(Z_ARR_P(return_value), Z_STR(key), &value);
+                    zend_symtable_update(Z_ARR_P(return_value), Z_STR(key), &value);
                 }
+                zval_dtor(&key);
             }
             return;
         }
@@ -703,7 +723,6 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                 binary_serialize_hashtable_key(keytype, transport, ht, key_ptr);
                 binary_serialize(valtype, transport, val_ptr, valspec);
             }
-            //zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
         case T_LIST: {
@@ -733,7 +752,6 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                  zend_hash_move_forward_ex(ht, &key_ptr)) {
                 binary_serialize(valtype, transport, val_ptr, valspec);
             }
-            // zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
         case T_SET: {
@@ -756,7 +774,6 @@ static void binary_serialize(int8_t thrift_typeID, PHPOutputTransport &transport
                  zend_hash_move_forward_ex(ht, &key_ptr)) {
                 binary_serialize_hashtable_key(keytype, transport, ht, key_ptr);
             }
-            // zend_hash_internal_pointer_reset_ex(ht, &key_ptr);
         }
             return;
     };
@@ -835,7 +852,47 @@ static void binary_deserialize_spec(zval *zthis, PHPInputTransport &transport, H
     }
 }
 
+
+//is used to validate objects before serialization and after deserialization. For now, only required fields are validated.
+static
+void validate_thrift_object(zval* object) {
+    zend_class_entry* object_class_entry = Z_OBJCE_P(object);
+    zval* is_validate = zend_read_static_property(object_class_entry, "isValidate", sizeof("isValidate")-1, false);
+    zval* spec = zend_read_static_property(object_class_entry, "_TSPEC", sizeof("_TSPEC")-1, false);
+    HashPosition key_ptr;
+    zval* val_ptr;
+
+    if (Z_TYPE_INFO_P(is_validate) == IS_TRUE) {
+        for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(spec), &key_ptr);
+             (val_ptr = zend_hash_get_current_data_ex(Z_ARRVAL_P(spec), &key_ptr)) != nullptr;
+             zend_hash_move_forward_ex(Z_ARRVAL_P(spec), &key_ptr)) {
+
+            zend_ulong fieldno;
+            if (zend_hash_get_current_key_ex(Z_ARRVAL_P(spec), nullptr, &fieldno, &key_ptr) != HASH_KEY_IS_LONG) {
+                throw_tprotocolexception("Bad keytype in TSPEC (expected 'long')", INVALID_DATA);
+                return;
+            }
+            HashTable* fieldspec = Z_ARRVAL_P(val_ptr);
+
+            // field name
+            zval* zvarname = zend_hash_str_find(fieldspec, "var", sizeof("var")-1);
+            char* varname = Z_STRVAL_P(zvarname);
+
+            zval* is_required = zend_hash_str_find(fieldspec, "isRequired", sizeof("isRequired")-1);
+            zval rv;
+            zval* prop = zend_read_property(object_class_entry, object, varname, strlen(varname), false, &rv);
+
+            if (Z_TYPE_INFO_P(is_required) == IS_TRUE && Z_TYPE_P(prop) == IS_NULL) {
+                char errbuf[128];
+                snprintf(errbuf, 128, "Required field %s.%s is unset!", ZSTR_VAL(object_class_entry->name), varname);
+                throw_tprotocolexception(errbuf, INVALID_DATA);
+            }
+        }
+    }
+}
+
 static void binary_serialize_spec(zval *zthis, PHPOutputTransport &transport, HashTable *spec) {
+    validate_thrift_object(zthis);
 
     HashPosition key_ptr;
     zval *val_ptr;
@@ -922,7 +979,9 @@ PHP_FUNCTION (sm_thrift_protocol_write_binary) {
         transport.flush();
 
     } catch (const PHPExceptionWrapper &ex) {
-        zend_throw_exception_object(ex);
+        zval myex;
+        ZVAL_COPY(&myex, ex);
+        zend_throw_exception_object(&myex);
         RETURN_NULL();
     } catch (const std::exception &ex) {
         throw_zend_exception_from_std_exception(ex);
@@ -986,7 +1045,11 @@ PHP_FUNCTION (sm_thrift_protocol_read_binary) {
         zval *spec = zend_read_static_property(Z_OBJCE_P(return_value), "_TSPEC", sizeof("_TSPEC") - 1, false);
         binary_deserialize_spec(return_value, transport, Z_ARRVAL_P(spec));
     } catch (const PHPExceptionWrapper &ex) {
-        zend_throw_exception_object(ex);
+        // ex will be destructed, so copy to a zval that zend_throw_exception_object can ownership of
+        zval myex;
+        ZVAL_COPY(&myex, ex);
+        zval_dtor(return_value);
+        zend_throw_exception_object(&myex);
         RETURN_NULL();
     } catch (const std::exception &ex) {
         throw_zend_exception_from_std_exception(ex);
