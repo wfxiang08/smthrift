@@ -24,6 +24,7 @@ extern "C" {
 #include "php_smthrift.h"
 }
 
+#include <sys/types.h>
 #include <arpa/inet.h>
 #include <cstdint>
 #include <stdexcept>
@@ -31,7 +32,7 @@ extern "C" {
 #include <vector>
 
 #ifndef bswap_64
-#define    bswap_64(x)     (((uint64_t)(x) << 56) | \
+#define bswap_64(x)     (((uint64_t)(x) << 56) | \
                         (((uint64_t)(x) << 40) & 0xff000000000000ULL) | \
                         (((uint64_t)(x) << 24) & 0xff0000000000ULL) | \
                         (((uint64_t)(x) << 8)  & 0xff00000000ULL) | \
@@ -596,7 +597,7 @@ static void binary_serialize_hashtable_key(int8_t keytype, PHPOutputTransport &t
     } else {
         char buf[64];
         if (res == HASH_KEY_IS_STRING) {
-            ZVAL_STR(&z, key);
+            ZVAL_STR_COPY(&z, key);
         } else {
             snprintf(buf, 64, "%ld", index);
             ZVAL_STRING(&z, buf);
@@ -979,6 +980,7 @@ PHP_FUNCTION (sm_thrift_protocol_write_binary) {
         transport.flush();
 
     } catch (const PHPExceptionWrapper &ex) {
+        // ex will be destructed, so copy to a zval that zend_throw_exception_object can take ownership of
         zval myex;
         ZVAL_COPY(&myex, ex);
         zend_throw_exception_object(&myex);
