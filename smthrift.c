@@ -72,7 +72,11 @@ static void smsocket_object_free_storage(zend_object *object) {
 
 static zend_object *smsocket_object_new(zend_class_entry *ce) {
     // 如何构造Fool sock对象呢?
-    smthrift_t *intern = ecalloc(1, sizeof(smthrift_t) + zend_object_properties_size(ce));
+    size_t len = sizeof(smthrift_t) + zend_object_properties_size(ce);
+    smthrift_t *intern = ecalloc(1, len);
+
+    // 清空数据
+    bzero(intern, len);
 
     zend_object_std_init(&intern->zo, ce);
     object_properties_init(&intern->zo, ce);
@@ -117,10 +121,14 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
                 f_obj->stream = NULL;
                 // php_printf("c stream1: %p\n", f_obj->stream);
                 break;
+            } else {
+                break;
             }
-        case PHP_STREAM_PERSISTENT_FAILURE:
-            break;
+//        case PHP_STREAM_PERSISTENT_FAILURE:
+//            break;
         default:
+            // 其他情况，确保stream为空
+            f_obj->stream = NULL;
             break;
     }
 
@@ -154,10 +162,13 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
             f_obj->stream = php_stream_sock_open_host(f_obj->host, f_obj->port, socktype, &tv, hash_key);
         }
 
-        php_stream_auto_cleanup(f_obj->stream);
-        php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_READ_TIMEOUT, 0, &tv);
-        php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
-        php_stream_set_chunk_size(f_obj->stream, 8192);
+        // 配置stream相关的参数
+        if (f_obj->stream) {
+            php_stream_auto_cleanup(f_obj->stream);
+            php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_READ_TIMEOUT, 0, &tv);
+            php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
+            php_stream_set_chunk_size(f_obj->stream, 8192);
+        }
 
     }
     efree(hash_key);
@@ -200,7 +211,7 @@ PHP_METHOD (smsocket, __construct) {
 #endif
 
     // 初始化intern
-    intern->host = pemalloc((size_t) (host_len + 1), 1);
+    intern->host = pemalloc((size_t) (host_len + 1), 0);
     memcpy(intern->host, host, host_len);
     intern->host[host_len] = '\0';
     intern->port = (unsigned short) (port);
