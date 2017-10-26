@@ -87,6 +87,30 @@ const int BAD_VERSION = 4;
 
 static void throw_tprotocolexception(const char *what, long errorcode);
 
+size_t read_bytes(php_stream *stream, char *reply, int bytes) {
+    size_t offset = 0;
+    while (offset < bytes) {
+        size_t got = php_stream_read(stream, reply + offset, bytes - offset);
+        if (got <= 0) {
+            return got;
+        }
+        offset += got;
+    }
+    return offset;
+}
+
+size_t write_bytes(php_stream *stream, char *reply, int bytes) {
+    size_t offset = 0;
+    while (offset < bytes) {
+        size_t got = php_stream_write(stream, reply + offset, bytes - offset);
+        if (got <= 0) {
+            return got;
+        }
+        offset += got;
+    }
+    return offset;
+}
+
 // 定义Php的异常?
 class PHPExceptionWrapper : public std::exception {
 public:
@@ -192,12 +216,14 @@ public:
 #ifdef DEBUG_LOG
         php_printf("flush data len: %d to socket: %p\n", buffer.size(), socket->stream);
 #endif
-        size_t len = php_stream_write(socket->stream, buffer.data(), buffer.size());
+
+        size_t len = write_bytes(socket->stream, buffer.data(), buffer.size());
         if (len != buffer.size()) {
             throw_tprotocolexception("php_stream_write to flush data failed", IO_WRITE_FAILED);
         }
     }
 };
+
 
 class PHPInputTransport : public PHPTransport {
 protected:
@@ -235,7 +261,9 @@ public:
             // EAGAIN
             // EINPROGRESS 不用考虑, 这里使用blocking io
             //
-            buffer_used = php_stream_read(socket->stream, (char *) &c, 4);
+
+
+            buffer_used = read_bytes(socket->stream, (char *) &c, 4);
             if (buffer_used != 4) {
                 throw_tprotocolexception("php_stream_read of frame size failed", IO_READ_FAILED);
             }
@@ -244,7 +272,7 @@ public:
             buffer.resize(4 + c);
 
             buffer_ptr = buffer.data() + 4;
-            buffer_used = php_stream_read(socket->stream, buffer_ptr, c);
+            buffer_used = read_bytes(socket->stream, buffer_ptr, c);
             if (buffer_used != c) {
                 throw_tprotocolexception("php_stream_read of frame body failed", IO_READ_FAILED);
             }
@@ -856,12 +884,12 @@ static void binary_deserialize_spec(zval *zthis, PHPInputTransport &transport, H
 
 //is used to validate objects before serialization and after deserialization. For now, only required fields are validated.
 static
-void validate_thrift_object(zval* object) {
-    zend_class_entry* object_class_entry = Z_OBJCE_P(object);
-    zval* is_validate = zend_read_static_property(object_class_entry, "isValidate", sizeof("isValidate")-1, false);
-    zval* spec = zend_read_static_property(object_class_entry, "_TSPEC", sizeof("_TSPEC")-1, false);
+void validate_thrift_object(zval *object) {
+    zend_class_entry *object_class_entry = Z_OBJCE_P(object);
+    zval *is_validate = zend_read_static_property(object_class_entry, "isValidate", sizeof("isValidate") - 1, false);
+    zval *spec = zend_read_static_property(object_class_entry, "_TSPEC", sizeof("_TSPEC") - 1, false);
     HashPosition key_ptr;
-    zval* val_ptr;
+    zval *val_ptr;
 
     if (Z_TYPE_INFO_P(is_validate) == IS_TRUE) {
         for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(spec), &key_ptr);
@@ -873,15 +901,15 @@ void validate_thrift_object(zval* object) {
                 throw_tprotocolexception("Bad keytype in TSPEC (expected 'long')", INVALID_DATA);
                 return;
             }
-            HashTable* fieldspec = Z_ARRVAL_P(val_ptr);
+            HashTable *fieldspec = Z_ARRVAL_P(val_ptr);
 
             // field name
-            zval* zvarname = zend_hash_str_find(fieldspec, "var", sizeof("var")-1);
-            char* varname = Z_STRVAL_P(zvarname);
+            zval *zvarname = zend_hash_str_find(fieldspec, "var", sizeof("var") - 1);
+            char *varname = Z_STRVAL_P(zvarname);
 
-            zval* is_required = zend_hash_str_find(fieldspec, "isRequired", sizeof("isRequired")-1);
+            zval *is_required = zend_hash_str_find(fieldspec, "isRequired", sizeof("isRequired") - 1);
             zval rv;
-            zval* prop = zend_read_property(object_class_entry, object, varname, strlen(varname), false, &rv);
+            zval *prop = zend_read_property(object_class_entry, object, varname, strlen(varname), false, &rv);
 
             if (Z_TYPE_INFO_P(is_required) == IS_TRUE && Z_TYPE_P(prop) == IS_NULL) {
                 char errbuf[128];
