@@ -167,7 +167,7 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
             php_stream_auto_cleanup(f_obj->stream);
             php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_READ_TIMEOUT, 0, &tv);
             php_stream_set_option(f_obj->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL);
-            php_stream_set_chunk_size(f_obj->stream, 8192);
+            // php_stream_set_chunk_size(f_obj->stream, 8192);
         }
 
     }
