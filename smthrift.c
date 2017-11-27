@@ -3,6 +3,7 @@
 #endif
 
 #include <stdio.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -14,6 +15,7 @@
 // 类 & handlers
 static zend_class_entry *smthrift_ce;
 static zend_object_handlers smthrift_object_handlers;
+long last_access_time;
 
 // string $host, int $port, bool $strict_write = true, bool $strict_read=true, int $persitent_key=0
 ZEND_BEGIN_ARG_INFO_EX(arginfo___construct, 0, 0, 2)
@@ -126,6 +128,11 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
                 f_obj->stream = NULL;
                 // php_printf("c stream1: %p\n", f_obj->stream);
                 break;
+            } else if (time(NULL) - last_access_time > 600) {
+                // 如果有太长时间没有访问，则关闭重来
+                php_stream_pclose(f_obj->stream);
+                f_obj->stream = NULL;
+                break;
             } else {
                 break;
             }
@@ -154,6 +161,7 @@ static int get_stream(smthrift_t *f_obj TSRMLS_DC) {
             stream = php_stream_xport_create(res, reslen, REPORT_ERRORS,
                                              STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, hash_key, &tv, NULL,
                                              NULL, NULL);
+            last_access_time = time(NULL);
 
 #ifdef DEBUG_LOG
             php_printf("Open new stream for: %s --> %p\n", res, stream);

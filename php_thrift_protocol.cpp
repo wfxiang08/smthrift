@@ -22,6 +22,7 @@
 
 extern "C" {
 #include "php_smthrift.h"
+#include "time.h"
 }
 
 #include <sys/types.h>
@@ -30,6 +31,7 @@ extern "C" {
 #include <stdexcept>
 #include <algorithm>
 #include <vector>
+
 
 #ifndef bswap_64
 #define bswap_64(x)     (((uint64_t)(x) << 56) | \
@@ -1014,6 +1016,8 @@ PHP_FUNCTION (sm_thrift_protocol_write_binary) {
 #endif
         transport.flush();
 
+        last_access_time = time(NULL);
+
     } catch (const PHPExceptionWrapper &ex) {
         // ex will be destructed, so copy to a zval that zend_throw_exception_object can take ownership of
         zval myex;
@@ -1081,6 +1085,7 @@ PHP_FUNCTION (sm_thrift_protocol_read_binary) {
         createObject(ZSTR_VAL(obj_typename), return_value);
         zval *spec = zend_read_static_property(Z_OBJCE_P(return_value), "_TSPEC", sizeof("_TSPEC") - 1, false);
         binary_deserialize_spec(return_value, transport, Z_ARRVAL_P(spec));
+        last_access_time = time(NULL);
     } catch (const PHPExceptionWrapper &ex) {
         // ex will be destructed, so copy to a zval that zend_throw_exception_object can ownership of
         zval myex;

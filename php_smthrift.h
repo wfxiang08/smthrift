@@ -77,6 +77,7 @@ typedef struct _smthrift_s {
     pid_t current_pid;
 } smthrift_t;
 
+extern long last_access_time;
 static inline smthrift_t *smthrift_fetch_object(zend_object *obj) {
     return (smthrift_t *) ((char *) obj - XtOffsetOf(smthrift_t, zo));
 }
