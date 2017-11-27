@@ -81,6 +81,9 @@ static zend_object *smsocket_object_new(zend_class_entry *ce) {
     zend_object_std_init(&intern->zo, ce);
     object_properties_init(&intern->zo, ce);
 
+    // 记录当前的pid
+    intern->current_pid = getpid();
+
     // 重载handlers
     intern->zo.handlers = &smthrift_object_handlers;
     // 返回对象
@@ -99,7 +102,9 @@ static struct timeval convert_timeoutms_to_ts(long msecs) {
     tv.tv_usec = (int) (((msecs - (secs * 1000)) * 1000) % 1000000);
     return tv;
 }
+
 /*}}}*/
+
 
 /*{{{ static int get_stream(smthrift_t* f_obj TSRMLS_DC)
  */
@@ -357,6 +362,8 @@ PHP_METHOD (smsocket, pclose) {
 
     // 关闭stream
     if (intern->stream != NULL) {
+        // php_stream_pclose
+        // php_stream_close
         php_stream_pclose(intern->stream);
         intern->stream = NULL;
     }
