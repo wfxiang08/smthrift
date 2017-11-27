@@ -161,6 +161,7 @@ protected:
 protected:
     std::vector<char> buffer;
     smthrift_t *socket;
+    char errbuf[128];
 };
 
 
@@ -219,7 +220,10 @@ public:
 
         size_t len = write_bytes(socket->stream, buffer.data(), buffer.size());
         if (len != buffer.size()) {
-            throw_tprotocolexception("php_stream_write to flush data failed", IO_WRITE_FAILED);
+            sprintf(errbuf, "php_stream_write to flush data failed, len: %d vs. %d, pid: %d",
+                    len, buffer.size(), socket->current_pid);
+
+            throw_tprotocolexception(errbuf, IO_WRITE_FAILED);
         }
     }
 };
@@ -241,8 +245,7 @@ public:
     void skip(size_t len) {
         if (len > buffer_used) {
             // 跑出异常
-            char errbuf[128];
-            sprintf(errbuf, "socket data length invalid");
+            sprintf(errbuf, "socket data length invalid, pid: %d", socket->current_pid);
             throw_tprotocolexception(errbuf, INVALID_DATA);
         }
 
@@ -252,7 +255,6 @@ public:
 
     // 理论上 readBytes 会保证读取到足够的长度
     void readBytes(void *buf, size_t len) {
-
         // 读取一帧数据
         if (buffer.size() <= 4) {
             // 读取一帧数据
@@ -265,7 +267,10 @@ public:
 
             buffer_used = read_bytes(socket->stream, (char *) &c, 4);
             if (buffer_used != 4) {
-                throw_tprotocolexception("php_stream_read of frame size failed", IO_READ_FAILED);
+                sprintf(errbuf, "php_stream_read of frame size failed, buffer_used: %d, pid: %d",
+                        buffer_used, socket->current_pid);
+
+                throw_tprotocolexception(errbuf, IO_READ_FAILED);
             }
 
             c = (uint32_t) ntohl(c);
@@ -274,14 +279,16 @@ public:
             buffer_ptr = buffer.data() + 4;
             buffer_used = read_bytes(socket->stream, buffer_ptr, c);
             if (buffer_used != c) {
-                throw_tprotocolexception("php_stream_read of frame body failed", IO_READ_FAILED);
+                sprintf(errbuf, "php_stream_read of frame body failed, buffer_used: %d, pid: %d",
+                        buffer_used, socket->current_pid);
+                throw_tprotocolexception(errbuf, IO_READ_FAILED);
             }
         }
 
         if (len > buffer_used) {
             // 抛出异常
-            char errbuf[128];
-            sprintf(errbuf, "socket data length invalid, buffer_used: %d < len: %d", buffer_used, len);
+            sprintf(errbuf, "socket data length invalid, buffer_used: %d < len: %d, pid: %d",
+                    buffer_used, len, socket->current_pid);
             throw_tprotocolexception(errbuf, INVALID_DATA);
         }
 

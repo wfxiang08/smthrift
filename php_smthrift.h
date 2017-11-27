@@ -73,6 +73,8 @@ typedef struct _smthrift_s {
     long timeoutms;
     php_stream *stream; // 最核心的逻辑
     zend_object zo;
+
+    pid_t current_pid;
 } smthrift_t;
 
 static inline smthrift_t *smthrift_fetch_object(zend_object *obj) {
